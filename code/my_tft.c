@@ -1,23 +1,23 @@
 /*
  * my_tft.c
  *
- *  Created on: 2025锟斤拷10锟斤拷3锟斤拷
+ *  Created on: 2025年10月3日
  *      Author: 15286
  */
 #include "zf_common_headfile.h"
 #include "my_tft.h"
 #include "get_image.h"
 
-#define PAGE_COUNT          3       // 锟斤拷页锟斤拷
-#define PARAM_PER_PAGE      9       // 每页锟斤拷锟斤拷锟斤拷锟斤拷
+#define PAGE_COUNT          3       // 总页数
+#define PARAM_PER_PAGE      9       // 每页参数个数
 #define PARAM_FLASH_PAGE    10
 
 typedef enum
 {
     STATE_NORMAL=0,
-    STATE_SELECT_PARAM,         //选锟斤拷锟斤拷
-    STATE_SELECT_DIGIT,         //选位锟斤拷
-    STATE_EDIT_DIGIT            //锟斤拷位锟斤拷
+    STATE_SELECT_PARAM,         //选择参数
+    STATE_SELECT_DIGIT,         //选位数
+    STATE_EDIT_DIGIT            //编辑位数
 }state_enum;
 
 typedef struct
@@ -32,11 +32,11 @@ static uint8 selected_param=0;
 static uint8 selected_digit=0;
 uint8 system_in_setting_mode = 0;
 uint16 exposure_time = 100;
-static uint32 button_press_counter = 0;  // 鎸夐挳鎸変笅璁℃暟鍣�
+static uint32 button_press_counter = 0;  // 按钮按下计数器
 
 static param arr[PAGE_COUNT][PARAM_PER_PAGE] =
 {
-    // 锟斤拷一页锟斤拷锟斤拷
+    // 第一页参数
     {
         {"P-Rows", {0, 0, 0, 2, 0}},
         {"Expose", {0, 0, 1, 0, 0}},
@@ -51,7 +51,7 @@ static param arr[PAGE_COUNT][PARAM_PER_PAGE] =
         {"SHIFTR", {0, 0, 0, 1, 5}}   //1.5
 
     },
-    // 锟节讹拷页锟斤拷锟斤拷
+    // 第二页参数
     {
         {"MID   ", {0, 3, 7, 5, 0}},
         {"Humid ", {0, 6, 5, 0, 0}},
@@ -66,7 +66,7 @@ static param arr[PAGE_COUNT][PARAM_PER_PAGE] =
         {"Press3", {1, 0, 1, 5, 0}}
 
     },
-    // 锟斤拷锟斤拷页锟斤拷锟斤拷
+    // 第三页参数
     {
         {"Time  ", {0, 1, 2, 3, 0}},
         {"Date  ", {2, 3, 0, 4, 0}},
@@ -92,9 +92,9 @@ void my_tft_init(void)
     load_from_flash();
     if(target_prospective_row_count < 20 || target_prospective_row_count > 50)
     {
-        target_prospective_row_count = 20;  // 强锟斤拷锟斤拷为默锟斤拷值
+        target_prospective_row_count = 20;  // 强制设为默认值
         arr[0][0].digit[3] = target_prospective_row_count / 10;  // 十位
-        arr[0][0].digit[4] = target_prospective_row_count % 10;  // 锟斤拷位
+        arr[0][0].digit[4] = target_prospective_row_count % 10;  // 个位
     }
 }
 
@@ -116,7 +116,7 @@ void load_from_flash(void)
         memcpy(arr,flash_union_buffer,sizeof(arr));
         flash_buffer_clear();
         target_prospective_row_count = arr[0][0].digit[3] * 10 + arr[0][0].digit[4];
-        // 锟斤拷围锟斤拷锟�
+        // 范围检查
         if(target_prospective_row_count < 20) target_prospective_row_count = 20;
         if(target_prospective_row_count > 50) target_prospective_row_count = 50;
 
@@ -135,22 +135,22 @@ void load_from_flash(void)
      //}
 }
 
-//锟斤拷锟斤拷锟斤拷锟斤拷  P20_6(搴熷純), P20_7, P11_2, P11_3
+//按钮处理  P20_6(废弃), P20_7, P11_2, P11_3
 void key_handle(void)
 {
-    // P20_6 鎸夐挳宸插簾寮冿紝涓嶅啀澶勭悊
+    // P20_6 按钮已废弃，不再处理
     
     if(gpio_get_level(P20_7)==0)
     {
         button_press_counter++;
         
-        // 妫�娴嬮暱鎸夛紙璁℃暟鍣ㄨ秴杩�100锛岀浉褰撲簬绾�500ms锛�
+        // 检测长按（计数器超过100，相当于约500ms）
         if(button_press_counter > 100)
         {
-            // 闀挎寜閫昏緫
+            // 长按逻辑
             if(system_in_setting_mode)
             {
-                // 鍦ㄤ笅浣嶆満鐣岄潰鏃讹紝闀挎寜缈婚〉
+                // 在下位机界面时，长按翻页
                 if(system_state==STATE_NORMAL)
                 {
                     current_page=(current_page+1)%3;
@@ -162,7 +162,7 @@ void key_handle(void)
                     display_current_page();
                 }
             }
-            button_press_counter = 0;  // 閲嶇疆璁℃暟鍣�
+            button_press_counter = 0;  // 重置计数器
         }
     
         else
@@ -208,7 +208,7 @@ void key_handle(void)
                     display_current_page();
                 }
             }
-            button_press_counter = 0;  // 閲嶇疆璁℃暟鍣�
+            button_press_counter = 0;  // 重置计数器
         }
     }
 
@@ -344,19 +344,19 @@ void key_handle(void)
 //锟斤拷锟斤拷锟斤拷锟斤拷  P20_6(搴熷純), P20_7, P11_2, P11_3
 void key_handle(void)
 {
-    // P20_6 鎸夐挳宸插簾寮冿紝涓嶅啀澶勭悊
+    // P20_6 按钮已废弃，不再处理
     
     if(gpio_get_level(P20_7)==0)
     {
         button_press_counter++;
         
-        // 妫�娴嬮暱鎸夛紙璁℃暟鍣ㄨ秴杩�100锛岀浉褰撲簬绾�500ms锛�
+        // 检测长按（计数器超过100，相当于约500ms）
         if(button_press_counter > 100)
         {
-            // 闀挎寜閫昏緫
+            // 长按逻辑
             if(system_in_setting_mode)
             {
-                // 鍦ㄤ笅浣嶆満鐣岄潰鏃讹紝闀挎寜缈婚〉
+                // 在下位机界面时，长按翻页
                 if(system_state==STATE_NORMAL)
                 {
                     current_page=(current_page+1)%3;
@@ -368,7 +368,7 @@ void key_handle(void)
                     display_current_page();
                 }
             }
-            button_press_counter = 0;  // 閲嶇疆璁℃暟鍣�
+            button_press_counter = 0;  // 重置计数器
         }
     }
     else
