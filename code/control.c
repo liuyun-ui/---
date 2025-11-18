@@ -2,86 +2,90 @@
 #include "Control.h"
 #include "zf_driver_pwm.h"
 
-//AÏòGND
-#define MOTORL_A ATOM0_CH4_P02_4    // ×óµç»úAÏàATOM0_CH4_P02_4
-#define MOTORL_B ATOM0_CH5_P02_5    // ×óµç»úBÏàATOM0_CH5_P02_5
+//Aé”Ÿæ–¤æ‹·GND
+#define MOTORL_A ATOM0_CH4_P02_4    // é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·Aé”Ÿæ–¤æ‹·ATOM0_CH4_P02_4
+#define MOTORL_B ATOM0_CH5_P02_5    // é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·Bé”Ÿæ–¤æ‹·ATOM0_CH5_P02_5
 
-#define MOTORR_A ATOM0_CH0_P21_2    // ÓÒµç»úAÏàATOM0_CH1_P21_3
-#define MOTORR_B ATOM0_CH1_P21_3    // ÓÒµç»úBÏàATOM0_CH0_P21_2
-#define STEER_PIN ATOM0_CH1_P33_9
-uint8 Go=1;   //³£¹æÑ­¼£
+#define MOTORR_A ATOM0_CH0_P21_2    // é”Ÿæ­ç¢‰æ‹·é”Ÿç´¸é”Ÿæ–¤æ‹·ATOM0_CH1_P21_3
+#define MOTORR_B ATOM0_CH1_P21_3    // é”Ÿæ­ç¢‰æ‹·é”Ÿç´¹é”Ÿæ–¤æ‹·ATOM0_CH0_P21_2
+#define STEER_PIN ATOM1_CH1_P33_9
+uint8 Go=1;
 
 motor_control_t left_motor, right_motor;
 steer_control_t car_steer;
 
 int Steer_Angle=0;
-int STEER_MID=3750;
-int STEER_LEFT_MAX=2600;
-int STEER_RIGHT_MAX=4900;
-
-float P_M=20;
-float I_M=0.5;
+int STEER_MID=3607;
+int STEER_LEFT_MAX=2707;
+int STEER_RIGHT_MAX=4507;
+float P_M=0.0;      // å¢žé‡å¼PIçš„Pï¼šé˜»å°¼é¡¹ï¼Œå…ˆè®¾ä¸º0
+float I_M=5.0;      // å¢žé‡å¼PIçš„Iï¼šä¸»é©±åŠ¨åŠ›ï¼ˆç›¸å½“äºŽä½ç½®å¼çš„Pï¼‰
 float P_S=80.0;
 float D_S=800;
 
-int base_speed=800;
-int straight_speed=1000;
-int cur_speed=600;
-int ur_cur_speed=400;
-float Shift_Ratio=1.5;   //±äËÙÏµÊý
-float Err_diff=1.1;      //²îËÙÏµÊý
+
+int base_speed = 18;
+int straight_speed = 69;
+int cur_speed = 42;
+int ur_cur_speed = 28;
+float Shift_Ratio=1.1;
+float Err_diff=1.1;
 int Speed_Left_Set=0;
 int Speed_Right_Set=0;
 
-static uint8_t speed_control_phase = 0;
-// ÔöÁ¿Ê½PI¿ØÖÆÆ÷
+
 int32_t speed_pi_calculate(pi_controller_t *pi, int32_t error)
 {
-    // ¼ÆËã±ÈÀýÏîÔöÁ¿£ºµ±Ç°Îó²î - ÉÏ´ÎÎó²î
+    // Pé¡¹ï¼šè¯¯å·®çš„å˜åŒ–é‡
     int32_t delta_p = error - pi->prev_error;
-    // ¼ÆËã»ý·ÖÏî£ºµ±Ç°Îó²î
+    // Ié¡¹ï¼šå½“å‰è¯¯å·®
     int32_t delta_i = error;
+
+    // è®¡ç®—å¢žé‡è¾“å‡º
     int32_t delta_output = (int32_t)(pi->kp * delta_p + pi->ki * delta_i);
+
+    // ç´¯åŠ åˆ°ä¸Šä¸€æ¬¡çš„è¾“å‡º
     int32_t output = pi->prev_output + delta_output;
-    // Êä³öÏÞ·ù
-    if(output > 30000) output = 30000;
-    if(output < -30000) output = -30000;
-    // ±£´æ×´Ì¬
+
+    // è¾“å‡ºé™å¹…ï¼Œé˜²æ­¢ç§¯åˆ†é¥±å’Œ
+    if(output > 11500) output = 11500;
+    if(output < -11500) output = -11500;
+
+    // ä¿å­˜çŠ¶æ€ï¼ˆä¿å­˜é™å¹…åŽçš„å€¼ï¼Œé˜²æ­¢ç§¯åˆ†é¥±å’Œï¼‰
     pi->prev_error = error;
     pi->prev_output = output;
+
     return output;
 }
 
 int32_t pd_controller_calculate(pd_controller_t *pd, float current_error)
 {
-    float derivative;
+
     int32_t output;
-    // ¼ÆËãÎ¢·ÖÏî
-    derivative = current_error - pd->prev_error;
-    // PD¿ØÖÆ¼ÆËã£ºÊä³ö = kp * Îó²î + kd * Î¢·Ö
-    output = (int32_t)(pd->kp * current_error + pd->kd * derivative);
-    // ¸üÐÂ×´Ì¬
+
+    output = (int32_t)(pd->kp * current_error + pd->kd * (current_error - pd->prev_error));
+
     pd->prev_error = current_error;
     pd->prev_output = output;
+
     return output;
 }
 
 void control_init(void)
 {
-    // ×ó±àÂëÆ÷ - TIM2£¬¼ÆÊýÒý½ÅP33_7£¬·½ÏòÒý½ÅP33_6
-    encoder_dir_init(TIM2_ENCODER, TIM2_ENCODER_CH1_P33_7, TIM2_ENCODER_CH2_P33_6);
+    // é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿï¿½ - TIM2é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·P33_7é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·P33_6
+    encoder_dir_init(TIM5_ENCODER, TIM5_ENCODER_CH1_P10_3, TIM5_ENCODER_CH2_P10_1);
 
-    // ÓÒ±àÂëÆ÷ - TIM4£¬¼ÆÊýÒý½ÅP02_8£¬·½ÏòÒý½ÅP00_9
-    encoder_dir_init(TIM4_ENCODER, TIM4_ENCODER_CH1_P02_8, TIM4_ENCODER_CH2_P00_9);
+    // é”Ÿæ­æ†‹æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹· - TIM4é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·P02_8é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·P00_9
+    encoder_dir_init(TIM6_ENCODER,TIM6_ENCODER_CH1_P20_3, TIM6_ENCODER_CH2_P20_0);
+    pwm_init(MOTORL_A, 17000, 500);  // ç”µæœºPWMé¢‘çŽ‡17kHz
+    pwm_init(MOTORL_B, 17000, 500);
+    pwm_init(MOTORR_A, 17000, 500);
+    pwm_init(MOTORR_B, 17000,500);
+    pwm_init(STEER_PIN, 50, STEER_MID);      // èˆµæœºä¿æŒ50Hz
 
-    pwm_init(MOTORL_A, 50, HALF_MAXDUTY);  // ³õÊ¼50%Õ¼¿Õ±È
-    pwm_init(MOTORL_B,50, HALF_MAXDUTY);
-    pwm_init(MOTORR_A,50, HALF_MAXDUTY);
-    pwm_init(MOTORR_B,50, HALF_MAXDUTY);
-    pwm_init(STEER_PIN,50,STEER_MID);
-
-    left_motor.pi.kp = P_M;      // ±ÈÀýÏµÊý
-    left_motor.pi.ki = I_M;      // »ý·ÖÏµÊý
+    left_motor.pi.kp = P_M;      // é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·ç³»é”Ÿæ–¤æ‹·
+    left_motor.pi.ki = I_M;      // é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·ç³»é”Ÿæ–¤æ‹·
     left_motor.pi.integral = 0;
     left_motor.pi.prev_error = 0;
     left_motor.pi.prev_output = 0;
@@ -100,41 +104,38 @@ void control_init(void)
     right_motor.current_speed = 0;
     right_motor.output = 0;
 
-
     car_steer.pd.kp = P_S;
     car_steer.pd.kd = D_S;
     car_steer.pd.prev_error = 0.0f;
     car_steer.pd.prev_output = 0;
     car_steer.current_angle = 0;
     car_steer.output = 0;
-    car_steer.angle_limit = 1100;
+    car_steer.angle_limit = 500;
 
-    // ³õÊ¼»¯2ms¶¨Ê±Æ÷ÖÐ¶Ï
-    pit_init(CCU60_CH0, 5000);  // 2000us = 2ms
-    pit_enable(CCU60_CH0);      // Ê¹ÄÜÖÐ¶Ï
+    pit_init(CCU60_CH0, 500);
+    pit_enable(CCU60_CH0);
 
-     pit_init(CCU61_CH0, 6000);  // 2000us = 2ms
-     pit_enable(CCU61_CH0);      // Ê¹ÄÜÖÐ¶Ï
-
+     pit_init(CCU61_CH0, 2000);
+     pit_enable(CCU61_CH0);
 }
 
 void MotorOutput(int32_t l_duty, int32_t r_duty)
 {
-    // ÏÞÖÆÊä³ö·¶Î§
+    // é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿè½¿ï¿½
     if(l_duty > PWM_DUTY_MAX) l_duty = PWM_DUTY_MAX;
     if(l_duty < -PWM_DUTY_MAX) l_duty = -PWM_DUTY_MAX;
     if(r_duty > PWM_DUTY_MAX) r_duty = PWM_DUTY_MAX;
     if(r_duty < -PWM_DUTY_MAX) r_duty = -PWM_DUTY_MAX;
 
-    // ¼ÆËã°ëÕ¼¿Õ±È
+    // é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿç§¸ç¡·æ‹·æ¯¡é”Ÿï¿½
     int32_t l_half_duty = l_duty / 2;
     int32_t r_half_duty = r_duty / 2;
 
-    // ×óµç»úÊä³ö
+    // é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·é”Ÿï¿½
     pwm_set_duty(MOTORL_A, HALF_MAXDUTY - l_half_duty);
     pwm_set_duty(MOTORL_B, HALF_MAXDUTY + l_half_duty);
 
-    // ÓÒµç»úÊä³ö
+    // é”Ÿæ­ç¢‰æ‹·é”Ÿæ–¤æ‹·é”Ÿæ–¤æ‹·
     pwm_set_duty(MOTORR_A, HALF_MAXDUTY - r_half_duty);
     pwm_set_duty(MOTORR_B, HALF_MAXDUTY + r_half_duty);
 
@@ -142,20 +143,13 @@ void MotorOutput(int32_t l_duty, int32_t r_duty)
 
 void calculate_motor_speed(void)
 {
-    static int32_t left_encoder_prev = 0;
-    static int32_t right_encoder_prev = 0;
-
-    // ¶ÁÈ¡±àÂëÆ÷Öµ
-    int32_t left_encoder_now = -1 * encoder_get_count(TIM2_ENCODER);  // ×ó±àÂëÆ÷È¡·´
-    int32_t right_encoder_now = encoder_get_count(TIM4_ENCODER);      // ÓÒ±àÂëÆ÷
-
-    // ¼ÆËãËÙ¶È£¨2msÄÚµÄÂö³åÊý£©
-    left_motor.current_speed = left_encoder_now - left_encoder_prev;
-    right_motor.current_speed = right_encoder_now - right_encoder_prev;
-
-    // ¸üÐÂÉÏÒ»´ÎµÄ±àÂëÆ÷Öµ
-    left_encoder_prev = left_encoder_now;
-    right_encoder_prev = right_encoder_now;
+    // ç›´æŽ¥è¯»å–ç¼–ç å™¨è®¡æ•°å€¼ï¼ˆè¿™å°±æ˜¯6mså†…çš„è„‰å†²å¢žé‡ï¼‰
+    left_motor.current_speed = encoder_get_count(TIM5_ENCODER);   // å·¦ç”µæœºç¼–ç å™¨
+    right_motor.current_speed = -encoder_get_count(TIM6_ENCODER); // å³ç”µæœºç¼–ç å™¨ï¼ˆå–åï¼Œå› ä¸ºé•œåƒå®‰è£…ï¼‰
+    
+    // è¯»å–åŽç«‹å³æ¸…é›¶ç¼–ç å™¨ï¼Œä¸ºä¸‹ä¸€ä¸ªå‘¨æœŸåšå‡†å¤‡
+    encoder_clear_count(TIM5_ENCODER);
+    encoder_clear_count(TIM6_ENCODER);
 }
 
 void calculate_target_speeds(void)
@@ -164,15 +158,21 @@ void calculate_target_speeds(void)
     {
         Speed_Left_Set = base_speed;
         Speed_Right_Set = base_speed;
+
         if(straight_flag==1)
         {
             Speed_Left_Set = straight_speed;
             Speed_Right_Set = straight_speed;
         }
+
+        /*
         Speed_Left_Set = Speed_Left_Set - white_start*Shift_Ratio;
         Speed_Right_Set = Speed_Right_Set - white_start*Shift_Ratio;
-        Speed_Left_Set = Speed_Left_Set - pros_weighted_deviation*Err_diff;
-        Speed_Right_Set = Speed_Right_Set + pros_weighted_deviation*Err_diff;
+        */
+/*
+        Speed_Left_Set = Speed_Left_Set + pros_weighted_deviation*Err_diff;
+        Speed_Right_Set = Speed_Right_Set - pros_weighted_deviation*Err_diff;
+*/
     }
 }
 
@@ -180,85 +180,113 @@ void motor_speed_control(void)
 {
     calculate_motor_speed();
 
-    left_motor.target_speed=Speed_Left_Set;
-    right_motor.target_speed=Speed_Right_Set;
+    left_motor.target_speed = Speed_Left_Set;
+    right_motor.target_speed = Speed_Right_Set;
 
-    // ×óµç»úPI¿ØÖÆ
+    // å·¦ç”µæœºPIæŽ§åˆ¶
     int32_t left_error = left_motor.target_speed - left_motor.current_speed;
     left_motor.output = speed_pi_calculate(&left_motor.pi, left_error);
-    // ÓÒµç»úPI¿ØÖÆ
+    
+    // å³ç”µæœºPIæŽ§åˆ¶
     int32_t right_error = right_motor.target_speed - right_motor.current_speed;
     right_motor.output = speed_pi_calculate(&right_motor.pi, right_error);
 
-    if(left_motor.output > 30000) left_motor.output = 30000;
-    if(left_motor.output < -30000) left_motor.output = -30000;
-    if(right_motor.output > 30000) right_motor.output = 30000;
-    if(right_motor.output < -30000) right_motor.output = -30000;
-
+    // PIå‡½æ•°å†…éƒ¨å·²ç»é™å¹…äº†ï¼Œè¿™é‡Œä¸éœ€è¦å†é™å¹…
+    
     MotorOutput(left_motor.output, right_motor.output);
-
 }
-/*
-void motor_speed_control(void)
-{
-    switch(speed_control_phase)
-    {
-        case 0:
-            // ½×¶Î0£º¼ÆËã×óµç»ú
-            calculate_motor_speed();
-            left_motor.target_speed = Speed_Left_Set;
-            int32_t left_error = left_motor.target_speed - left_motor.current_speed;
-            left_motor.output = speed_pi_calculate(&left_motor.pi, left_error);
-            break;
 
-        case 1:
-            // ½×¶Î1£º¼ÆËãÓÒµç»ú
-            right_motor.target_speed = Speed_Right_Set;
-            int32_t right_error = right_motor.target_speed - right_motor.current_speed;
-            right_motor.output = speed_pi_calculate(&right_motor.pi, right_error);
-            break;
-
-        case 2:
-            // ½×¶Î2£ºÊä³öÏÞ·ùºÍµç»úÊä³ö
-            if(left_motor.output > 30000) left_motor.output = 30000;
-            if(left_motor.output < -30000) left_motor.output = -30000;
-            if(right_motor.output > 30000) right_motor.output = 30000;
-            if(right_motor.output < -30000) right_motor.output = -30000;
-            MotorOutput(left_motor.output, right_motor.output);
-            break;
-    }
-
-    // ÇÐ»»µ½ÏÂÒ»½×¶Î
-    speed_control_phase = (speed_control_phase + 1) % 3;
-
-}
-*/
-//ERROR_SCALE
 void Direction_control(void)
 {
-    if(Go == 1)  // ³£¹æÑ­¼£Ä£Ê½
+    if(Go == 1)
     {
         float current_error = 0-pros_weighted_deviation;
+        float base_kp = P_S;
+        if(straight_flag)
+        {
+            base_kp = P_S - 4.0f;
+            if(base_kp < 0.0f)
+            {
+                base_kp = 0.0f;
+            }
+        }
+
+        car_steer.pd.kp = base_kp;
+        float original_kd = car_steer.pd.kd;
+        if(straight_flag)
+        {
+            car_steer.pd.kd = original_kd - 20.0f;
+            if(car_steer.pd.kd < 0.0f)
+            {
+                car_steer.pd.kd = 0.0f;
+            }
+        }
+
         car_steer.output = pd_controller_calculate(&car_steer.pd, current_error);
-        // ½Ç¶ÈÏÞ·ù
         if(car_steer.output > car_steer.angle_limit)
             car_steer.output = car_steer.angle_limit;
         else if(car_steer.output < -car_steer.angle_limit)
             car_steer.output = -car_steer.angle_limit;
+        car_steer.pd.kd = original_kd;
         car_steer.current_angle = car_steer.output;
         Steer(car_steer.current_angle);
-
     }
 }
+
 
 void Steer(int angle)
 {
     int pwm_value;
     pwm_value = STEER_MID + angle;
-    // ×îÖÕÏÞ·ùÈ·±£ÔÚÓÐÐ§·¶Î§ÄÚ
     if(pwm_value > STEER_RIGHT_MAX) pwm_value = STEER_RIGHT_MAX;
     if(pwm_value < STEER_LEFT_MAX) pwm_value = STEER_LEFT_MAX;
     pwm_set_duty(STEER_PIN, pwm_value);
+}
+
+// ==================== é€Ÿåº¦è®¾ç½®å‡½æ•°ï¼ˆä½¿ç”¨å®žé™…é€Ÿåº¦m/sï¼‰ ====================
+
+// è®¾ç½®åŸºç¡€é€Ÿåº¦ï¼ˆm/sï¼‰
+void set_base_speed_real(float speed_m_s)
+{
+    base_speed = REAL_SPEED_TO_ENCODER(speed_m_s);
+}
+
+// è®¾ç½®ç›´é“é€Ÿåº¦ï¼ˆm/sï¼‰
+void set_straight_speed_real(float speed_m_s)
+{
+    straight_speed = REAL_SPEED_TO_ENCODER(speed_m_s);
+}
+
+// è®¾ç½®å¼¯é“é€Ÿåº¦ï¼ˆm/sï¼‰
+void set_cur_speed_real(float speed_m_s)
+{
+    cur_speed = REAL_SPEED_TO_ENCODER(speed_m_s);
+}
+
+// è®¾ç½®æ€¥å¼¯é€Ÿåº¦ï¼ˆm/sï¼‰
+void set_ur_cur_speed_real(float speed_m_s)
+{
+    ur_cur_speed = REAL_SPEED_TO_ENCODER(speed_m_s);
+}
+
+// ==================== é€Ÿåº¦èŽ·å–å‡½æ•°ï¼ˆè¿”å›žå®žé™…é€Ÿåº¦m/sï¼‰ ====================
+
+// èŽ·å–åŸºç¡€é€Ÿåº¦ï¼ˆm/sï¼‰
+float get_base_speed_real(void)
+{
+    return ENCODER_TO_REAL_SPEED(base_speed);
+}
+
+// èŽ·å–å·¦ç”µæœºå½“å‰å®žé™…é€Ÿåº¦ï¼ˆm/sï¼‰
+float get_current_real_speed_left(void)
+{
+    return ENCODER_TO_REAL_SPEED(left_motor.current_speed);
+}
+
+// èŽ·å–å³ç”µæœºå½“å‰å®žé™…é€Ÿåº¦ï¼ˆm/sï¼‰
+float get_current_real_speed_right(void)
+{
+    return ENCODER_TO_REAL_SPEED(right_motor.current_speed);
 }
 
 

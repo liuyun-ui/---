@@ -22,6 +22,7 @@ void search_line(void);
 void cal_error(void);
 void init_prospective_weights(void);
 void calculate_pros_weighted_deviation(void);
+int My_Road_Adapt_Threshold(uint8 image[][MT9V03X_W], uint16 width, uint16 height);
 
 void left_add_line(int x1, int y1, int x2, int y2);
 void right_add_line(int x1, int y1, int x2, int y2);

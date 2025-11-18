@@ -41,11 +41,41 @@
 // 本例程是开源库空工程 可用作移植或者测试各类内外设
 
 // **************************** 代码区域 ****************************
+/*
+ seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_DEBUG_UART);
+
+    // 初始化逐飞助手示波器的结构体
+       seekfree_assistant_oscilloscope_struct oscilloscope_data;
+
+       oscilloscope_data.data[0] = 0.1111 + 2;
+       oscilloscope_data.data[1] = 0.3333 - 1;
+       oscilloscope_data.data[2] = 4.222;
+       oscilloscope_data.data[3] = 5.222;
+       // 设置为4个通道，通道数量最大为8个
+       oscilloscope_data.channel_num = 4;
+
+    // 此处编写用户代码 例如外设初始化代码等
+    cpu_wait_event_ready();         // 等待所有核心初始化完毕
+    while (TRUE)
+    {
+        // 此处编写需要循环执行的代码
+
+        // 通过串口发送到虚拟示波器上
+        seekfree_assistant_oscilloscope_send(&oscilloscope_data);
+        oscilloscope_data.data[0] -= 1;
+        oscilloscope_data.data[1] -= 2;
+        oscilloscope_data.data[2] += 1;
+        oscilloscope_data.data[3] += 2;
+        system_delay_ms(5);
+*/
+
+
 
 int core0_main(void)
 {
     clock_init();                   // 获取时钟频率<务必保留>
     debug_init();                   // 初始化默认调试串口
+    seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_DEBUG_UART);
     // 此处编写用户代码 例如外设初始化代码等
     interrupt_global_enable(0);
     my_camera_init();
@@ -53,13 +83,19 @@ int core0_main(void)
     control_init();
     // 此处编写用户代码 例如外设初始化代码等
     cpu_wait_event_ready();         // 等待所有核心初始化完毕
+    load_from_flash();
 
+    seekfree_assistant_oscilloscope_struct oscilloscope_data;
+    oscilloscope_data.data[0] = left_motor.current_speed;
+    oscilloscope_data.channel_num = 1;
     while (TRUE)
     {
+        seekfree_assistant_oscilloscope_send(&oscilloscope_data);
+        oscilloscope_data.data[0]=left_motor.current_speed;
         my_tft_work();
         camera_display();
         calculate_target_speeds();
-        system_delay_ms(5);
+
         // 此处编写需要循环执行的代码
     }
 }

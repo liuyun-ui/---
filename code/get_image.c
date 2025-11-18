@@ -1,11 +1,12 @@
 /*
  * get_image.c
  *
- *  Created on: 2025Äê10ÔÂ7ÈÕ
+ *  Created on: 2025ï¿½ï¿½10ï¿½ï¿½7ï¿½ï¿½
  *      Author: 15286
  */
 #include "zf_common_headfile.h"
 #include "get_image.h"
+#include <math.h>
 
 int threshold=0;
 uint8 image[MT9V03X_H][MT9V03X_W];
@@ -16,7 +17,6 @@ uint8 left_lost[MT9V03X_H];
 uint8 right_lost[MT9V03X_H];
 int white_start=0;
 int longest_column=MT9V03X_W/2;
-// Ê®×ÖÂ·¿ÚÏà¹Ø±äÁ¿
 uint8 cross_flag = 0;
 int left_down_find = 0;
 int right_down_find = 0;
@@ -24,22 +24,35 @@ int left_up_find = 0;
 int right_up_find = 0;
 int both_lost_time = 0;
 
-//Ö±ÍäµÀ¼ì²â
 int straight_flag=0;
 int cur_flag=0;
+float near_slope=0;
 
-
-//Ç°Õ°ĞĞÓĞ¹Ø±äÁ¿
-int prospective_row_start = 0;      // Ç°Õ°ÆğÊ¼ĞĞ
-int prospective_row_end = 0;        // Ç°Õ°½áÊøĞĞ
-int prospective_row_count = 20;     // ¶¯Ì¬µÄÇ°Õ°ĞĞÊıÁ¿
-int target_prospective_row_count=20;// Ä¿±êÇ°Õ°ĞĞÊıÁ¿£¨Ä¬ÈÏ20£¬·¶Î§20-50£©
-float prospective_weights[50]={0};  // Ç°Õ°ĞĞÈ¨ÖØÊı×é£¨½ü´óÔ¶Ğ¡£©
-float pros_weighted_deviation = 0;  // Ç°Õ°ĞĞ¼ÓÈ¨Îó²î
-float max_err=30;                   //Îó²îÏŞ·ù
-// ÏÔÊ¾ÇøÓò¶¨Òå
+int prospective_row_start = 0;
+int prospective_row_end = 0;
+int prospective_row_count = 20;
+int target_prospective_row_count=20;
+float prospective_weights[70]={0};
+float pros_weighted_deviation = 0;
+float max_err=40;
 #define DISPLAY_WIDTH 128
-#define DISPLAY_HEIGHT 120  // ÆÁÄ»ÉÏ°ë²¿·Ö¸ß¶È
+#define DISPLAY_HEIGHT 90
+//åŠ æƒæ§åˆ¶
+
+#define STRAIGHT_BOTTOM_OFFSET 5
+#define STRAIGHT_BOTTOM_RANGE 45
+#define STRAIGHT_SLOPE_THRESHOLD 0.25f
+
+const uint8 Weight[70]=
+{
+        11, 11, 11, 11, 11, 11, 11, 11, 11, 11,              //å›¾åƒæœ€è¿œç«¯00 â€”â€”09 è¡Œæƒé‡
+        11, 11, 11, 11, 11, 11, 11, 11, 11, 11,              //å›¾åƒæœ€è¿œç«¯10 â€”â€”19 è¡Œæƒé‡
+        7, 7, 7, 7, 7, 7, 7, 7, 7, 7,              //å›¾åƒæœ€è¿œç«¯20 â€”â€”29 è¡Œæƒé‡
+        7, 9, 11,11,13,15,17,19,20,20,              //å›¾åƒæœ€è¿œç«¯30 â€”â€”39 è¡Œæƒé‡
+       19,17,15,13,11, 9, 7, 5, 3, 1,              //å›¾åƒæœ€è¿œç«¯40 â€”â€”49 è¡Œæƒé‡
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1,              //å›¾åƒæœ€è¿œç«¯50 â€”â€”59 è¡Œæƒé‡
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1,              //å›¾åƒæœ€è¿œç«¯60 â€”â€”69 è¡Œæƒé‡
+};
 
 void my_camera_init(void)
 {
@@ -47,7 +60,7 @@ void my_camera_init(void)
     tft180_clear();
     mt9v03x_init();
     load_from_flash();
-    mt9v03x_set_exposure_time(exposure_time);         //³õÊ¼»¯Ê±ÉèÖÃÆØ¹â
+    mt9v03x_set_exposure_time(exposure_time);
     memset(left_lost, 1, sizeof(left_lost));
     memset(right_lost, 1, sizeof(right_lost));
     init_prospective_weights();
@@ -59,14 +72,11 @@ void init_prospective_weights(void)
 
     for(int i = 0; i < prospective_row_count; i++)
     {
-        // ÏßĞÔµİÔöÈ¨ÖØ£º´ÓÆğÊ¼ĞĞÏòÏÂ£¬ĞĞºÅÔ½´óÈ¨ÖØÔ½´ó
-        prospective_weights[i] = (float)(i + 1);  // µÚ0ĞĞÈ¨ÖØ1£¬µÚ1ĞĞÈ¨ÖØ2£¬ÒÔ´ËÀàÍÆ
-        total_weight += prospective_weights[i];
+        total_weight += Weight[i];
     }
-    // ¹éÒ»»¯È¨ÖØ
     for(int i = 0; i < prospective_row_count; i++)
     {
-        prospective_weights[i] /= total_weight;
+        prospective_weights[i] = Weight[i]/total_weight;
     }
 }
 
@@ -78,83 +88,18 @@ void camera_display(void)
         if(!system_in_setting_mode)
         {
             tft180_show_gray_image(0, 0, (uint8 *)image, MT9V03X_W, MT9V03X_H, DISPLAY_WIDTH, DISPLAY_HEIGHT, 0);
-            show_boundaries();//ÏÔÊ¾±ß½ç
+            show_boundaries();
         }
-        search_line();//Ñ²Ïß
+        search_line();
         //cross_detect();
         straight_detect();
-        cal_error();//ÕÒÖĞÏß
-        calculate_pros_weighted_deviation();//¼ÆËãÇ°Õ°ĞĞµÄ¼ÓÈ¨Îó²î
+        cal_error();
+        calculate_pros_weighted_deviation();
 
-        //show_boundaries();//ÏÔÊ¾±ß½ç
+        //show_boundaries();
         mt9v03x_finish_flag = 0;
     }
 }
-
-/*
-int My_Adapt_Threshold(uint8 image[][MT9V03X_W],uint16 width, uint16 height)   //´ó½òËã·¨£¬×¢Òâ¼ÆËããĞÖµµÄÒ»¶¨ÒªÊÇÔ­Í¼Ïñ
-{
-    #define GrayScale 256
-    int pixelCount[GrayScale];
-    float pixelPro[GrayScale];
-    int i, j;
-    int pixelSum = width * height/4;
-    int  threshold = 0;
-
-    for (i = 0; i < GrayScale; i++)
-    {
-        pixelCount[i] = 0;
-        pixelPro[i] = 0;
-    }
-
-    uint32 gray_sum=0;
-
-    for (i = 0; i < height; i+=2)//Í³¼Æ»Ò¶È¼¶ÖĞÃ¿¸öÏñËØÔÚÕû·ùÍ¼ÏñÖĞµÄ¸öÊı
-    {
-        for (j = 0; j <width; j+=2)
-        {
-            pixelCount[(int)image[i][j]]++;    //Í³¼ÆÃ¿¸ö»Ò¶È¼¶µÄÏñËØÊıÁ¿
-            gray_sum += (int)image[i][j];      //»Ò¶ÈÖµ×ÜºÍ
-        }
-    }
-
-    for (i = 0; i < GrayScale; i++) //¼ÆËãÃ¿¸öÏñËØÖµµÄµãÔÚÕû·ùÍ¼ÏñÖĞµÄ±ÈÀı
-    {
-        pixelPro[i] = (float)pixelCount[i] / pixelSum;
-    }
-
-    float w0, w1, u0tmp, u1tmp, u0, u1, u, deltaTmp, deltaMax = 0;
-    w0 = w1 = u0tmp = u1tmp = u0 = u1 = u = deltaTmp = 0;
-
-    for (j = 0; j < GrayScale; j++)//±éÀú»Ò¶È¼¶[0,255]
-    {
-        w0 += pixelPro[j];  //±³¾°²¿·ÖÃ¿¸ö»Ò¶ÈÖµµÄÏñËØµãËùÕ¼±ÈÀıÖ®ºÍ   ¼´±³¾°²¿·ÖµÄ±ÈÀı
-        u0tmp += j * pixelPro[j];  //±³¾°²¿·Ö Ã¿¸ö»Ò¶ÈÖµµÄµãµÄ±ÈÀı *»Ò¶ÈÖµ
-        w1=1-w0;
-        u1tmp=gray_sum/pixelSum-u0tmp;
-        u0 = u0tmp / w0;              //±³¾°Æ½¾ù»Ò¶È
-        u1 = u1tmp / w1;              //Ç°¾°Æ½¾ù»Ò¶È
-        u = u0tmp + u1tmp;            //È«¾ÖÆ½¾ù»Ò¶È
-        deltaTmp = w0 * pow((u0 - u), 2) + w1 * pow((u1 - u), 2);//Æ½·½
-        if (deltaTmp > deltaMax)
-        {
-            deltaMax = deltaTmp;//×î´óÀà¼ä·½²î·¨
-            threshold = j;
-        }
-        if (deltaTmp < deltaMax)
-        {
-            break;
-        }
-    }
-    if(threshold>255)
-        threshold=255;
-    if(threshold<0)
-        threshold=0;
-  return threshold;
-}
-*/
-
-//´ó½ò·¨
 
 int My_Adapt_Threshold(uint8 image[][MT9V03X_W], uint16 width, uint16 height)
 {
@@ -162,20 +107,18 @@ int My_Adapt_Threshold(uint8 image[][MT9V03X_W], uint16 width, uint16 height)
     int pixelCount[GrayScale] = {0};
     float pixelPro[GrayScale] = {0};
     int i, j;
-    int pixelSum = width * height / 4;  // ×¢Òâ£ºÕâÀï²ÉÑùÁË1/4µÄÏñËØ
+    int pixelSum = width * height;  // ä¿®æ”¹ï¼šä½¿ç”¨å…¨éƒ¨åƒç´ 
     int threshold = 0;
 
     uint32 gray_sum = 0;
 
-    // Í³¼ÆÖ±·½Í¼£¨²ÉÑù1/4ÏñËØ£©
-    for (i = 0; i < height; i += 2) {
-        for (j = 0; j < width; j += 2) {
+    // ç»Ÿè®¡ç›´æ–¹å›¾ - å…¨é‡‡æ ·ï¼šéå†æ‰€æœ‰åƒç´ 
+    for (i = 0; i < height; i++) {  // ä¿®æ”¹ï¼šæ­¥é•¿æ”¹ä¸º1
+        for (j = 0; j < width; j++) {  // ä¿®æ”¹ï¼šæ­¥é•¿æ”¹ä¸º1
             pixelCount[(int)image[i][j]]++;
             gray_sum += (int)image[i][j];
         }
     }
-
-    // ¼ÆËã¸ÅÂÊ·Ö²¼
     for (i = 0; i < GrayScale; i++) {
         pixelPro[i] = (float)pixelCount[i] / pixelSum;
     }
@@ -183,103 +126,107 @@ int My_Adapt_Threshold(uint8 image[][MT9V03X_W], uint16 width, uint16 height)
     float w0, w1, u0tmp, u1tmp, u0, u1, u, deltaTmp, deltaMax = 0;
     w0 = w1 = u0tmp = u1tmp = u0 = u1 = u = deltaTmp = 0;
 
-    // È«¾ÖÆ½¾ù»Ò¶È
+    // å…¨å±€å¹³å‡ç°åº¦
     u = gray_sum / (float)pixelSum;
 
     for (j = 0; j < GrayScale; j++) {
-        w0 += pixelPro[j];          // ±³¾°±ÈÀı
-        u0tmp += j * pixelPro[j];   // ±³¾°»Ò¶È¼ÓÈ¨ºÍ
+        w0 += pixelPro[j];          // èƒŒæ™¯æ¯”ä¾‹
+        u0tmp += j * pixelPro[j];   // èƒŒæ™¯ç°åº¦åŠ æƒå’Œ
 
         if (w0 < 1e-6 || w0 > 1 - 1e-6) {
-            continue;  // ±ÜÃâ³ıÁã
+            continue;  // é¿å…é™¤é›¶
         }
 
-        w1 = 1 - w0;                // Ç°¾°±ÈÀı
-        u1tmp = u - u0tmp;          // Ç°¾°»Ò¶È¼ÓÈ¨ºÍ
+        w1 = 1 - w0;                // å‰æ™¯æ¯”ä¾‹
+        u1tmp = u - u0tmp;          // å‰æ™¯ç°åº¦åŠ æƒå’Œ
 
-        u0 = u0tmp / w0;            // ±³¾°Æ½¾ù»Ò¶È
-        u1 = u1tmp / w1;            // Ç°¾°Æ½¾ù»Ò¶È
+        u0 = u0tmp / w0;            // èƒŒæ™¯å¹³å‡ç°åº¦
+        u1 = u1tmp / w1;            // å‰æ™¯å¹³å‡ç°åº¦
 
-        // Àà¼ä·½²î
+        // ç±»é—´æ–¹å·®
         deltaTmp = w0 * w1 * (u0 - u1) * (u0 - u1);
 
         if (deltaTmp > deltaMax) {
             deltaMax = deltaTmp;
             threshold = j;
         }
-        // É¾³ıÌáÇ°ÖÕÖ¹Ìõ¼ş£¡
     }
 
-    // ±ß½ç¼ì²é
+    // è¾¹ç•Œæ£€æŸ¥
     if (threshold > 255) threshold = 255;
     if (threshold < 0) threshold = 0;
 
     return threshold;
 }
 
-/*
-uint8 My_Adapt_Threshold(uint8 *image, uint16 col, uint16 row)
-{
-    #define GrayScale 256//¶¨Òå256¸ö»Ò¶È¼¶
-    uint16 width = col;   //Í¼Ïñ¿í¶È
-    uint16 height = row;  //Í¼Ïñ³¤¶È
-    int pixelCount[GrayScale];  //Ã¿¸ö»Ò¶ÈÖµËùÕ¼ÏñËØ¸öÊı
-    float pixelPro[GrayScale]; //Ã¿¸ö»Ò¶ÈÖµËùÕ¼×ÜÏñËØ±ÈÀı
-    int i, j;
-    int sumPixel = width * height;//×ÜÏñËØµã
-    uint8 threshold = 0; //×î¼ÑãĞÖµ
-    uint8* data = image;  //Ö¸ÏòÏñËØÊı¾İµÄÖ¸Õë
-    for (i = 0; i < GrayScale; i++)
-    {
-        pixelCount[i] = 0;
-        pixelPro[i] = 0;
-    }
-    //Í³¼Æ»Ò¶È¼¶ÖĞÃ¿¸öÏñËØÔÚÕû·ùÍ¼ÏñÖĞµÄ¸öÊı
-    for (i = 0; i < height; i++)
-    {
-        for (j = 0; j < width; j++)
-        {
-            pixelCount[(int)data[i * width + j]]++;  //½«ÏñËØÖµ×÷Îª¼ÆÊıÊı×éµÄÏÂ±ê
-             //   pixelCount[(int)image[i][j]]++;    Èô²»ÓÃÖ¸ÕëÓÃÕâ¸ö
-        }
-    }
-    float w0=0, w1=0, u0Sum=0, u1Sum=0, u0=0, u1=0, u=0, variance=0, maxVariance = 0;
-    for (i = 0; i < GrayScale; i++)
-    {
-        pixelPro[i] = (float)pixelCount[i] / sumPixel;
-         u += i * pixelPro[i];  //×ÜÆ½¾ù»Ò¶È
-    }
-    for (i = 0; i < GrayScale; i++)     // i×÷ÎªãĞÖµ ãĞÖµ´Ó1-255±éÀú
-    {
-
-        for (j = 0; j < GrayScale; j++)    //ÇóÄ¿±êÇ°¾°ºÍ±³¾°
-        {
-            if (j <= i)   //Ç°¾°²¿·Ö
-            {
-                w0 += pixelPro[j];
-                u0Sum += j * pixelPro[j];
-            }
-            else   //±³¾°²¿·Ö
-            {
-                w1 += pixelPro[j];
-                u1Sum += j * pixelPro[j];
-            }
-        }
-        u0 = u0Sum / w0;
-        u1 = u1Sum / w1;
-        variance = w0 * pow((u0 - u), 2) + w1 * pow((u1 - u), 2);  //Àà¼ä·½²î¼ÆËã¹«Ê½
-        if (variance > maxVariance)   //ÅĞ¶ÏÊÇ·ñÎª×î´óÀà¼ä·½²î
-        {
-            maxVariance = variance;
-            threshold = i;
-        }
-    }
-    return threshold;
-}
-*/
+ // æ”¹è¿›ç‰ˆï¼šåŸºäºèµ›é“ä¸­å¿ƒåŒºåŸŸçš„è‡ªé€‚åº”é˜ˆå€¼
+ int My_Road_Adapt_Threshold(uint8 image[][MT9V03X_W], uint16 width, uint16 height)
+ {
+       #define GrayScale 256
+      int pixelCount[GrayScale] = {0};
+     float pixelPro[GrayScale] = {0};
+      int i, j;
+      
+      // åªç»Ÿè®¡å›¾åƒä¸­é—´å’Œä¸‹åŠéƒ¨åˆ†çš„åƒç´ ï¼ˆèµ›é“å¯èƒ½å­˜åœ¨çš„åŒºåŸŸï¼‰
+      int start_row = height / 3;        // ä»1/3å¤„å¼€å§‹
+     int start_col = width / 4;         // å·¦ä¾§1/4
+      int end_col = width * 3 / 4;       // å³ä¾§3/4
+      
+      int pixelSum = 0;
+      uint32 gray_sum = 0;
+      
+      // ç»Ÿè®¡ç›´æ–¹å›¾ - åªåœ¨å¯èƒ½æœ‰èµ›é“çš„åŒºåŸŸé‡‡æ ·
+      for (i = start_row; i < height; i++) {
+          for (j = start_col; j < end_col; j++) {
+              pixelCount[(int)image[i][j]]++;
+              gray_sum += (int)image[i][j];
+              pixelSum++;
+          }
+      }
+      
+     // è®¡ç®—æ¦‚ç‡åˆ†å¸ƒ
+      for (i = 0; i < GrayScale; i++) {
+          pixelPro[i] = (float)pixelCount[i] / pixelSum;
+     }
+      
+      float w0, w1, u0tmp, u1tmp, u0, u1, u, deltaTmp, deltaMax = 0;
+      w0 = w1 = u0tmp = u1tmp = u0 = u1 = u = deltaTmp = 0;
+      int threshold = 0;
+      // å…¨å±€å¹³å‡ç°åº¦
+      u = gray_sum / (float)pixelSum;
+      // å¤§æ´¥æ³•è®¡ç®—æœ€ä½³é˜ˆå€¼
+      for (j = 0; j < GrayScale; j++) {
+          w0 += pixelPro[j];
+          u0tmp += j * pixelPro[j];
+          if (w0 < 1e-6 || w0 > 1 - 1e-6) {
+              continue;
+          }
+          
+          w1 = 1 - w0;
+         u1tmp = u - u0tmp;
+          
+          u0 = u0tmp / w0;
+          u1 = u1tmp / w1;
+          
+          deltaTmp = w0 * w1 * (u0 - u1) * (u0 - u1);
+          
+          if (deltaTmp > deltaMax) {
+              deltaMax = deltaTmp;
+              threshold = j;
+          }
+      }
+      
+      // è¾¹ç•Œæ£€æŸ¥
+      if (threshold > 255) threshold = 255;
+      if (threshold < 0) threshold = 0;
+      
+      return threshold;
+  }
+  
 void image_binary(void)
 {
     threshold=My_Adapt_Threshold(mt9v03x_image,MT9V03X_W, MT9V03X_H);
+
     for(int i=0;i<MT9V03X_H;i++)
     {
         for(int j=0;j<MT9V03X_W;j++)
@@ -322,20 +269,20 @@ void search_line(void)
             longest_column = j;
         }
     }
-    // È·¶¨×î³¤°×ÁĞËùÔÚĞĞ
     white_start=MT9V03X_H-5;
     for(int i = MT9V03X_H-5; i >0; i--)
     {
-        if(image[i][longest_column] == 0)
+        if(image[i][longest_column] == 255)
         {
             white_start= i;
+        }
+        else
+        {
             break;
         }
     }
-    //Ä¿±êµÄÇ°Õ°ÆğÊ¼ĞĞ ÊÇÔÚMT9V03X_H-20-target_prospective_row_count´¦
-    //µ«Èç¹ûÆğÊ¼ĞĞ±È°×ÁĞËùÔÚĞĞ»¹ÒªÇ°£¬¾ÍÖ»È¡µ½°×ÁĞËùÔÚĞĞ
-    //Èç¹ûMT9V03X_H-20»¹ÔÚ°×ÁĞÇ°£¬¾Í°ÑÍ¼Ïñµ×²¿µ½°×ÁĞÈ«×÷ÎªÇ°Õ°ĞĞ
-    int target_prospective_row_start=MT9V03X_H-20-target_prospective_row_count;
+
+    int target_prospective_row_start=MT9V03X_H-10-target_prospective_row_count;
     if(target_prospective_row_start<white_start)
     {
         prospective_row_start=white_start;
@@ -344,19 +291,18 @@ void search_line(void)
     {
         prospective_row_start=target_prospective_row_start;
     }
-    if(MT9V03X_H-20<white_start)
+    if(MT9V03X_H-1<white_start)
     {
-        prospective_row_count=MT9V03X_H-white_start-1;
+        prospective_row_count=MT9V03X_H-white_start-10;
     }
     else
     {
-        prospective_row_count=MT9V03X_H-20-prospective_row_start;
+        prospective_row_count=MT9V03X_H-10-prospective_row_start;
     }
     init_prospective_weights();
 
     for(int i = 0; i < MT9V03X_H; i++)
     {
-        // ³õÊ¼»¯µ±Ç°ĞĞµÄ±ß½çÎª×î³¤°×ÁĞÎ»ÖÃ
         left_bound[i] = longest_column;
         right_bound[i] = longest_column;
 
@@ -392,7 +338,7 @@ void search_line(void)
         }
     }
 }
-//¼ÆËãÖĞÏß
+
 void cal_error(void)
 {
     for(int i = 0; i < MT9V03X_H; i++)
@@ -407,7 +353,7 @@ void cal_error(void)
         }
     }
 }
-//¼ÆËãÎó²î
+
 void calculate_pros_weighted_deviation(void)
 {
     float sum_weighted_midline = 0;
@@ -442,20 +388,64 @@ void calculate_pros_weighted_deviation(void)
         {
             pros_weighted_deviation=0-max_err;
         }
-        //pros_weighted_deviation=max_err;
     }
+}
+
+static float calculate_midline_avg_slope(int start_row, int end_row)
+{
+    if(start_row < 0)
+    {
+        start_row = 0;
+    }
+    if(end_row >= MT9V03X_H)
+    {
+        end_row = MT9V03X_H - 1;
+    }
+    if(end_row - start_row < 2)
+    {
+        return 0.0f;
+    }
+
+    int prev_row = -1;
+    float slope_sum = 0.0f;
+    int slope_count = 0;
+
+    for(int row = start_row; row <= end_row; row++)
+    {
+        if(left_lost[row] && right_lost[row])
+        {
+            continue;
+        }
+
+        if(prev_row >= 0)
+        {
+            int delta_row = row - prev_row;
+            if(delta_row != 0)
+            {
+                slope_sum += (float)(midline[row] - midline[prev_row]) / (float)delta_row;
+                slope_count++;
+            }
+        }
+
+        prev_row = row;
+    }
+
+    if(slope_count == 0)
+    {
+        return 0.0f;
+    }
+
+    return slope_sum / slope_count;
 }
 
 void show_boundaries(void)
 {
-    // Ê¹ÓÃÏÔÊ¾ÇøÓòµÄ³ß´ç½øĞĞ¼ÆËã
     float scale_x = (float)DISPLAY_WIDTH / MT9V03X_W;
     float scale_y = (float)DISPLAY_HEIGHT / MT9V03X_H;
 
     for(int i = 0; i < MT9V03X_H; i++)
     {
         uint16 y_scaled = (uint16)(i * scale_y);
-        // Ö»ÏÔÊ¾ÔÚÏÔÊ¾ÇøÓòÄÚ
         if(y_scaled >= DISPLAY_HEIGHT) continue;
 
         if(!left_lost[i] && left_bound[i] >= 0 && left_bound[i] < MT9V03X_W)
@@ -489,10 +479,8 @@ void show_boundaries(void)
         uint16 y_start = (uint16)(prospective_row_start * scale_y);
         uint16 y_end = (uint16)((prospective_row_start + prospective_row_count) * scale_y);
 
-        // Ö»ÔÚÏÔÊ¾ÇøÓòÄÚ»æÖÆ
         if(y_start < DISPLAY_HEIGHT)
         {
-            // »æÖÆÆğÊ¼ĞĞ£¨×î³¤°×ÁĞËùÔÚĞĞ£©
             for(int x = DISPLAY_WIDTH/4; x < (DISPLAY_WIDTH*3/4); x += 2)
             {
                 tft180_draw_point(x, y_start, RGB565_PURPLE);
@@ -500,35 +488,50 @@ void show_boundaries(void)
         }
         if(y_end < DISPLAY_HEIGHT)
         {
-            // »æÖÆ½áÊøĞĞ
             for(int x = DISPLAY_WIDTH/4; x < (DISPLAY_WIDTH*3/4); x += 2)
             {
                 tft180_draw_point(x, y_end, RGB565_PURPLE);
             }
         }
     }
-    // ÔÚÏÔÊ¾ÇøÓòÏÂ·½ÏÔÊ¾Ç°Õ°Îó²î
     tft180_show_float(0, DISPLAY_HEIGHT + 10, pros_weighted_deviation, 2, 1);
+    tft180_show_float(0, DISPLAY_HEIGHT + 25, left_motor.current_speed, 2, 1);
+    tft180_show_float(0, DISPLAY_HEIGHT + 40, left_motor.target_speed, 2, 1);
+    tft180_show_float(0, DISPLAY_HEIGHT + 50, straight_flag, 2, 1);
+    tft180_show_float(20, DISPLAY_HEIGHT + 50, white_start, 2, 1);
+    tft180_show_float(50, DISPLAY_HEIGHT + 50, near_slope, 2, 2);
 }
 
 void straight_detect(void)
 {
-    straight_flag=0;
-    if(white_start<=50)   //²ÎÊıĞèµ÷
+    straight_flag = 0;
+
+    int bottom_end = MT9V03X_H - 1 - STRAIGHT_BOTTOM_OFFSET;
+    if(bottom_end < 1)
     {
-        if(pros_weighted_deviation>=-5&&pros_weighted_deviation<=5)
-        {
-            straight_flag=1;
-        }
+        return;
+    }
+
+    int bottom_start = bottom_end - STRAIGHT_BOTTOM_RANGE;
+    if(bottom_start < 0)
+    {
+        bottom_start = 0;
+    }
+
+    near_slope = calculate_midline_avg_slope(bottom_start, bottom_end);
+
+    if((fabsf(near_slope) <= STRAIGHT_SLOPE_THRESHOLD)&&white_start<=23)
+    {
+        straight_flag = 1;
     }
 }
 
-//²¹Ïß
+//ï¿½ï¿½ï¿½ï¿½
 void left_add_line(int x1, int y1, int x2, int y2)
 {
     int i, max, a1, a2;
     int hx;
-    // ±ß½ç¼ì²é
+    // ï¿½ß½ï¿½ï¿½ï¿½
     if(x1 >= MT9V03X_W-1) x1 = MT9V03X_W-1;
     else if(x1 <= 0) x1 = 0;
     if(y1 >= MT9V03X_H-1) y1 = MT9V03X_H-1;
@@ -556,13 +559,13 @@ void left_add_line(int x1, int y1, int x2, int y2)
     }
 }
 
-//²¹Ïß
+//ï¿½ï¿½ï¿½ï¿½
 void right_add_line(int x1, int y1, int x2, int y2)
 {
     int i, max, a1, a2;
     int hx;
 
-    // ±ß½ç¼ì²é
+    // ï¿½ß½ï¿½ï¿½ï¿½
     if(x1 >= MT9V03X_W-1) x1 = MT9V03X_W-1;
     else if(x1 <= 0) x1 = 0;
     if(y1 >= MT9V03X_H-1) y1 = MT9V03X_H-1;
@@ -611,7 +614,7 @@ void find_down_point(int start, int end)
 
     for(i = start; i >= end; i--)
     {
-        // ×ó±ß½çÏòÏÂ¹Õµã¼ì²â
+        // ï¿½ï¿½ß½ï¿½ï¿½ï¿½ï¿½Â¹Õµï¿½ï¿½ï¿½
         if(left_down_find == 0 &&
            abs(left_bound[i] - left_bound[i+1]) <= 5 &&
            abs(left_bound[i+1] - left_bound[i+2]) <= 5 &&
@@ -623,7 +626,7 @@ void find_down_point(int start, int end)
             left_down_find = i;
         }
 
-        // ÓÒ±ß½çÏòÏÂ¹Õµã¼ì²â
+        // ï¿½Ò±ß½ï¿½ï¿½ï¿½ï¿½Â¹Õµï¿½ï¿½ï¿½
         if(right_down_find == 0 &&
            abs(right_bound[i] - right_bound[i+1]) <= 5 &&
            abs(right_bound[i+1] - right_bound[i+2]) <= 5 &&
@@ -662,7 +665,7 @@ void find_up_point(int start, int end)
 
     for(i = start; i >= end; i--)
     {
-        // ×ó±ß½çÏòÉÏ¹Õµã¼ì²â
+        // ï¿½ï¿½ß½ï¿½ï¿½ï¿½ï¿½Ï¹Õµï¿½ï¿½ï¿½
         if(left_up_find == 0 &&
            abs(left_bound[i] - left_bound[i-1]) <= 5 &&
            abs(left_bound[i-1] - left_bound[i-2]) <= 5 &&
@@ -674,7 +677,7 @@ void find_up_point(int start, int end)
             left_up_find = i;
         }
 
-        // ÓÒ±ß½çÏòÉÏ¹Õµã¼ì²â
+        // ï¿½Ò±ß½ï¿½ï¿½ï¿½ï¿½Ï¹Õµï¿½ï¿½ï¿½
         if(right_up_find == 0 &&
            abs(right_bound[i] - right_bound[i-1]) <= 5 &&
            abs(right_bound[i-1] - right_bound[i-2]) <= 5 &&
@@ -692,7 +695,6 @@ void find_up_point(int start, int end)
         }
     }
 
-    // ×İÏòËºÁÑ¹ı´ó£¬ÊÓÎªÎóÅĞ
     if(abs(right_up_find - left_up_find) >= 30)
     {
         right_up_find = 0;
@@ -701,13 +703,11 @@ void find_up_point(int start, int end)
 }
 
 
-//Ê®×Ö¼ì²â
 void cross_detect(void)
 {
     int down_search_start = 0;
     cross_flag = 0;
 
-    // Í³¼ÆË«±ß¶ªÏßÊ±¼ä
     both_lost_time = 0;
     for(int i = 0; i < MT9V03X_H; i++)
     {
@@ -722,28 +722,22 @@ void cross_detect(void)
     left_down_find = 0;
     right_down_find = 0;
 
-    // Ê®×ÖÂ·¿ÚÍ¨³£ÓĞË«±ß¶ªÏß
     if(both_lost_time >= 10)
     {
         find_up_point(MT9V03X_H-1, 0);
 
-        // ±ØĞëÍ¬Ê±ÕÒµ½Á½¸öÉÏ¹Õµã²ÅÈÏÎªÊÇÊ®×Ö
         if(left_up_find != 0 && right_up_find != 0)
         {
             cross_flag = 1;
-            // ÓÃÁ½¸öÉÏ¹ÕµãÖĞ¿¿ÏÂµÄ×÷ÎªÏÂµãËÑË÷ÉÏÏŞ
             down_search_start = (left_up_find > right_up_find) ? left_up_find : right_up_find;
             find_down_point(MT9V03X_H-5, down_search_start + 2);
-            // ¼ì²éÏÂµãÎ»ÖÃºÏÀíĞÔ
             if(left_down_find <= left_up_find)
                 left_down_find = 0;
             if(right_down_find <= right_up_find)
                 right_down_find = 0;
 
-            // ¸ù¾İÕÒµ½µÄµã½øĞĞ²¹Ïß
             if(left_down_find != 0 && right_down_find != 0)
             {
-                // ËÄ¸öµã¶¼ÔÚ
                 left_add_line(left_bound[left_up_find], left_up_find,
                              left_bound[left_down_find], left_down_find);
                 right_add_line(right_bound[right_up_find], right_up_find,
@@ -751,7 +745,6 @@ void cross_detect(void)
             }
             else if(left_down_find == 0 && right_down_find != 0)
             {
-                // Ö»ÓĞÓÒÏÂµÄÈı¸öµã - Ö±½ÓÑÓ³¤×ó±ß½ç
                 for(int i = left_up_find-1; i < MT9V03X_H; i++)
                 {
                     if(i+1 < MT9V03X_H && left_bound[i+1] != 0)
@@ -765,7 +758,7 @@ void cross_detect(void)
             }
             else if(left_down_find != 0 && right_down_find == 0)
             {
-                // Ö»ÓĞ×óÏÂµÄÈı¸öµã - Ö±½ÓÑÓ³¤ÓÒ±ß½ç
+                // Ö»ï¿½ï¿½ï¿½ï¿½ï¿½Âµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ - Ö±ï¿½ï¿½ï¿½Ó³ï¿½ï¿½Ò±ß½ï¿½
                 left_add_line(left_bound[left_up_find], left_up_find,
                              left_bound[left_down_find], left_down_find);
                 for(int i = right_up_find-1; i < MT9V03X_H; i++)
@@ -779,7 +772,7 @@ void cross_detect(void)
             }
             else
             {
-                // Ö»ÓĞÁ½¸öÉÏµã - Ö±½ÓÑÓ³¤Ë«±ß
+
                 for(int i = left_up_find-1; i < MT9V03X_H; i++)
                 {
                     if(i+1 < MT9V03X_H && left_bound[i+1] != 0)
